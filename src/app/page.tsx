@@ -52,6 +52,7 @@ export default function Home() {
             client={client}
             chain={base}
             contractAddress={CONTRACT}
+            claimParams={{ type: "ERC721", quantity: 1n }}
             onTransactionConfirmed={(tx) => {
               setTxHash(tx.transactionHash);
               sdk.actions.composeCast({
