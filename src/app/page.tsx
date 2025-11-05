@@ -12,17 +12,15 @@ import { base as viemBase } from "viem/chains";
 // ⚠️ 换成你的 DropERC721 合约地址
 const CONTRACT = "0xb18d766e6316a93B47338F1661a0b9566C16f979";
 
-// —— 轮播图与总量配置（请到 Vercel 设置环境变量）—— //
-const IPFS_GATEWAY = process.env.NEXT_PUBLIC_IPFS_GATEWAY || "https://ipfs.io";
+// —— 环境变量 —— //
+const IPFS_GATEWAY = (process.env.NEXT_PUBLIC_IPFS_GATEWAY || "https://ipfs.io").replace(/\/+$/, "");
 const IMG_CID = process.env.NEXT_PUBLIC_IMG_CID;
 const IMG_COUNT = Number(process.env.NEXT_PUBLIC_IMG_COUNT ?? "8");
-const IMG_LIST =
-  process.env.NEXT_PUBLIC_IMG_LIST?.split(",")
-    .map((s) => s.trim())
-    .filter(Boolean) || [];
+const IMG_LIST_RAW =
+  process.env.NEXT_PUBLIC_IMG_LIST?.split(",").map((s) => s.trim()).filter(Boolean) || [];
 const TOTAL_SUPPLY_FALLBACK = Number(process.env.NEXT_PUBLIC_TOTAL_SUPPLY ?? "100");
 
-// —— 链上读取：尝试多种常见函数，并对“读到 0”的情况做回退 —— //
+// —— 链上读取 —— //
 const publicClient = createPublicClient({
   chain: viemBase,
   transport: http("https://mainnet.base.org"),
@@ -50,14 +48,11 @@ async function tryReadUint(fn: string) {
 }
 
 function preferNonZero(...vals: Array<bigint | null | undefined>): bigint | null {
-  for (const v of vals) {
-    if (v != null && v !== 0n) return v;
-  }
+  for (const v of vals) if (v != null && v !== 0n) return v;
   return null;
 }
 
 async function fetchMintProgress() {
-  // minted：优先 totalMinted -> totalSupply -> nextTokenIdToClaim
   const mintedBn =
     preferNonZero(
       await tryReadUint("totalMinted"),
@@ -65,7 +60,6 @@ async function fetchMintProgress() {
       await tryReadUint("nextTokenIdToClaim")
     ) ?? 0n;
 
-  // total：优先 maxTotalSupply -> maxSupply，若为 0 或缺失，回退到环境变量
   const totalBn =
     preferNonZero(await tryReadUint("maxTotalSupply"), await tryReadUint("maxSupply")) ??
     BigInt(TOTAL_SUPPLY_FALLBACK);
@@ -75,18 +69,30 @@ async function fetchMintProgress() {
   return { minted, total };
 }
 
-// 轮播图：IMG_LIST > IMG_CID 目录
-function makeImgUrls(): string[] {
-  if (IMG_LIST.length) return IMG_LIST;
-  if (!IMG_CID) return [];
-  return Array.from(
-    { length: IMG_COUNT },
-    (_, i) => `${IPFS_GATEWAY}/ipfs/${IMG_CID}/${i + 1}.png`
-  );
+// —— 轮播：支持 IMG_LIST（优先）或 IMG_CID —— //
+function expandImgUrls(): string[] {
+  if (IMG_LIST_RAW.length) {
+    const urls: string[] = [];
+    const isImage = (u: string) => /\.(png|jpg|jpeg|gif|webp|svg)(\?.*)?$/i.test(u);
+    for (const item of IMG_LIST_RAW) {
+      if (isImage(item)) {
+        urls.push(item);
+      } else {
+        // 给了“目录链接”则自动补 /1.png…N.png
+        const dir = item.replace(/\/+$/, "");
+        for (let i = 1; i <= IMG_COUNT; i++) urls.push(`${dir}/${i}.png`);
+      }
+    }
+    return urls;
+  }
+  if (IMG_CID) {
+    return Array.from({ length: IMG_COUNT }, (_, i) => `${IPFS_GATEWAY}/ipfs/${IMG_CID}/${i + 1}.png`);
+  }
+  return [];
 }
 
 export default function Home() {
-  // VERY IMPORTANT: 先声明就绪，保证能拿到 context
+  // 先 ready，保证 context 可用
   useEffect(() => {
     sdk.actions.ready().catch(() => {});
   }, []);
@@ -124,23 +130,28 @@ export default function Home() {
     };
   }, []);
 
-  // —— Farcaster 头像（主取 user.pfpUrl；从 Cast 启动则兜底 author.pfpUrl）—— //
+  // —— 头像：user.pfpUrl 为主，cast.author.pfpUrl 兜底 —— //
   const [pfp, setPfp] = useState<string | null>(null);
   useEffect(() => {
-    try {
-      const u: any = (sdk as any)?.context?.user;
-      const loc: any = (sdk as any)?.context?.location;
-      const fromUser = u?.pfpUrl || u?.pfp_url || u?.avatar_url;
-      const fromCast =
-        (loc?.type === "cast_embed" || loc?.type === "cast_share") ? loc?.cast?.author?.pfpUrl : undefined;
-      setPfp(fromUser || fromCast || null);
-    } catch {
-      // ignore
-    }
+    (async () => {
+      try {
+        await sdk.actions.ready();
+        const anySdk: any = sdk as any;
+        const u = anySdk?.context?.user;
+        const loc = anySdk?.context?.location;
+        const fromUser = u?.pfpUrl || u?.pfp_url || u?.avatar_url;
+        const fromCast =
+          (loc?.type === "cast_embed" || loc?.type === "cast_share") ? loc?.cast?.author?.pfpUrl : undefined;
+        setPfp(fromUser || fromCast || null);
+      } catch {}
+    })();
   }, []);
 
-  // —— 轮播图 —— //
-  const imgs = useMemo(() => makeImgUrls(), []);
+  // —— 轮播 —— //
+  const allImgs = useMemo(() => expandImgUrls(), []);
+  const [badSet, setBadSet] = useState<Set<string>>(new Set());
+  const imgs = useMemo(() => allImgs.filter((u) => !badSet.has(u)), [allImgs, badSet]);
+
   const [idx, setIdx] = useState(0);
   useEffect(() => {
     if (!imgs.length) return;
@@ -236,29 +247,29 @@ export default function Home() {
       >
         {imgs.length ? (
           <img
-            key={idx}
+            key={imgs[idx]}
             src={imgs[idx]}
             alt="collection"
             style={{ width: "82%", height: "82%", objectFit: "cover", borderRadius: 12 }}
-            onError={(e) => {
-              // 显示一个占位而不是直接隐藏
-              e.currentTarget.replaceWith(
-                Object.assign(document.createElement("div"), {
-                  innerText: "图片加载失败，请检查 CID / URL",
-                  style:
-                    "opacity:.7;font-weight:600;color:#557;padding:12px;text-align:center;",
-                })
-              );
-            }}
+            onError={() =>
+              setBadSet((prev) => {
+                const ns = new Set(prev);
+                ns.add(imgs[idx]);
+                return ns;
+              })
+            }
           />
         ) : (
-          <div style={{ opacity: 0.6, fontWeight: 600, color: "#557", padding: 12 }}>
-            请在 Vercel 设置 <b>NEXT_PUBLIC_IMG_LIST</b>（逗号分隔）或 <b>NEXT_PUBLIC_IMG_CID</b>
+          <div style={{ opacity: 0.6, fontWeight: 600, color: "#557", padding: 12, textAlign: "center" }}>
+            图片加载失败或未配置。请在 Vercel 设置
+            <br />
+            <b>NEXT_PUBLIC_IMG_LIST</b>（逗号分隔完整图片 URL）
+            <br />或 <b>NEXT_PUBLIC_IMG_CID</b> + <b>NEXT_PUBLIC_IMG_COUNT</b>
           </div>
         )}
       </div>
 
-      {/* Share / Mint（连接区保持你原来逻辑） */}
+      {/* Share / Mint（保持你原来的连接逻辑） */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 420, margin: "0 auto" }}>
         <button
           onClick={() =>
