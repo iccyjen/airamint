@@ -20,6 +20,16 @@ const IMG_LIST_RAW =
   process.env.NEXT_PUBLIC_IMG_LIST?.split(",").map((s) => s.trim()).filter(Boolean) || [];
 const TOTAL_SUPPLY_FALLBACK = Number(process.env.NEXT_PUBLIC_TOTAL_SUPPLY ?? "100");
 
+// 头像兜底（可选）：如果 context 拿不到头像，强制使用该 URL
+const FORCE_PFP = process.env.NEXT_PUBLIC_FORCE_PFP || null;
+// 将 ipfs:// 转 https 网关（兼容头像来源为 ipfs 的情况）
+const PFP_GATEWAY = (process.env.NEXT_PUBLIC_PFP_GATEWAY || "https://ipfs.io").replace(/\/+$/, "");
+function toHttp(url?: string | null) {
+  if (!url) return null;
+  if (url.startsWith("ipfs://")) return `${PFP_GATEWAY}/ipfs/${url.slice("ipfs://".length)}`;
+  return url;
+}
+
 // —— 链上读取 —— //
 const publicClient = createPublicClient({
   chain: viemBase,
@@ -130,21 +140,35 @@ export default function Home() {
     };
   }, []);
 
-  // —— 头像：user.pfpUrl 为主，cast.author.pfpUrl 兜底 —— //
+  // —— 头像：先 ready，再从 user / cast.author 读取；最后用 FORCE_PFP 兜底 —— //
   const [pfp, setPfp] = useState<string | null>(null);
   useEffect(() => {
+    let stop = false;
     (async () => {
       try {
-        await sdk.actions.ready();
+        await sdk.actions.ready().catch(() => {});
         const anySdk: any = sdk as any;
-        const u = anySdk?.context?.user;
-        const loc = anySdk?.context?.location;
-        const fromUser = u?.pfpUrl || u?.pfp_url || u?.avatar_url;
-        const fromCast =
-          (loc?.type === "cast_embed" || loc?.type === "cast_share") ? loc?.cast?.author?.pfpUrl : undefined;
-        setPfp(fromUser || fromCast || null);
-      } catch {}
+        const ctx = anySdk?.context || {};
+        const user = ctx.user || {};
+        const loc = ctx.location || {};
+        const author = loc?.cast?.author || {};
+
+        const candidates = [
+          user?.pfpUrl, user?.pfp_url, user?.avatar_url,
+          author?.pfpUrl, author?.pfp_url, author?.avatar_url,
+          FORCE_PFP,
+        ].filter(Boolean) as string[];
+
+        for (const raw of candidates) {
+          const url = toHttp(raw);
+          if (url) { if (!stop) setPfp(url); return; }
+        }
+        if (!stop) setPfp(null);
+      } catch {
+        if (!stop) setPfp(FORCE_PFP ? toHttp(FORCE_PFP) : null);
+      }
     })();
+    return () => { stop = true; };
   }, []);
 
   // —— 轮播 —— //
@@ -191,6 +215,7 @@ export default function Home() {
               height={32}
               style={{ borderRadius: "50%", border: "2px solid #fff", boxShadow: "0 0 0 2px #aab6ff" }}
               alt="pfp"
+              onError={() => setPfp(null)}
             />
           ) : (
             <div
