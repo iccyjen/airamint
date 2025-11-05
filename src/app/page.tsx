@@ -71,7 +71,12 @@ function makeImgUrls() {
 export default function Home() {
   const { isConnected, address } = useAccount();
   const { connect, connectors } = useConnect();
-  const { data: balance } = useBalance({ address, chainId: 8453, watch: true });
+  const { data: balance } = useBalance({
+   address,
+   chainId: 8453,
+   // v2 用 query 传递轮询/触发策略
+   query: { refetchInterval: 15000, refetchOnWindowFocus: false }
+  });
   const [txHash, setTxHash] = useState<string | null>(null);
 
   // 顶部左侧：已铸/总量
