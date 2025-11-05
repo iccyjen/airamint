@@ -1,0 +1,16 @@
+{
+  "extends": "next/core-web-vitals",
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2021",
+    "module": "ESNext",
+    "jsx": "preserve",
+    "moduleResolution": "Bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules"]
+}
