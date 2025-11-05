@@ -1,14 +1,14 @@
 {
   "accountAssociation": {
-    "header": "REPLACE_WITH_YOUR_SIGNED_HEADER",
-    "payload": "REPLACE_WITH_YOUR_SIGNED_PAYLOAD",
-    "signature": "REPLACE_WITH_YOUR_SIGNATURE"
+    "header": "eyJmaWQiOjQ5OTQwNiwidHlwZSI6ImN1c3RvZHkiLCJrZXkiOiIweDljZjkyZWE3RThBMzE2Y2FmRmM0RGM3ODQ2YzgxRGNCYkRBNWQ4RTgifQ",
+    "payload": "eyJkb21haW4iOiJtaW50LXUudmVyY2VsLmFwcCJ9",
+    "signature": "0+cK2ZowrQnZq6ZJgSNUuc+qSkiSxkmR5hh+OJ0AGUVjc0Q4K/68cY+0/IhCQJ7JjwICbvhfO8C5WWT1b0ZlPBw="
   },
   "miniapp": {
     "version": "1",
     "name": "Base NFT Mint",
-    "iconUrl": "https://YOUR-VERCEL-DOMAIN.com/icon.png",
-    "homeUrl": "https://YOUR-VERCEL-DOMAIN.com",
+    "iconUrl": "https://mint-u.vercel.app/icon.png",
+    "homeUrl": "https://mint-u.vercel.app/",
     "splashBackgroundColor": "#000000"
   }
 }
