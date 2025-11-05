@@ -55,9 +55,10 @@ export default function Home() {
             claimParams={{ type: "ERC721", quantity: 1n }}
             onTransactionConfirmed={(tx) => {
               setTxHash(tx.transactionHash);
+              const url = typeof window !== "undefined" ? window.location.href : undefined;
               sdk.actions.composeCast({
                 text: "我刚在 Base 铸了一枚 NFT（0.001 ETH）#IceBrain",
-                embeds: [{ url: typeof window !== "undefined" ? window.location.href : "" }]
+                ...(url ? { embeds: [url] } : {})
               });
             }}
             onError={(e) => alert(`交易失败：${(e as Error).message}`)}
