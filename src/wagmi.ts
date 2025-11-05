@@ -1,9 +1,11 @@
-import { createConfig, http } from "wagmi";
+// src/wagmi.ts
+import { createConfig } from "wagmi";
 import { base } from "wagmi/chains";
-import { farcasterMiniApp } from "@farcaster/miniapp-wagmi-connector";
+import { http } from "viem";
+import { MiniAppWagmiConnector } from "@farcaster/miniapp-wagmi-connector";
 
 export const config = createConfig({
   chains: [base],
-  connectors: [farcasterMiniApp()],
+  connectors: [new MiniAppWagmiConnector()],
   transports: { [base.id]: http() },
 });
