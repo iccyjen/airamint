@@ -29,11 +29,12 @@ function WagmiToThirdwebBridge() {
       if (!walletClient) return;
 
       // 优先取底层 provider；取不到则用 walletClient 自身做一个 EIP-1193 适配
-      // @ts-expect-error - 部分 connector 在 transport.value.provider 上暴露原生 provider
-      const provider = walletClient?.transport?.value?.provider ?? {
-        request: (args: { method: string; params?: unknown[] }) =>
-          walletClient.request(args as any),
-      };
+      const provider =
+        (walletClient as any)?.transport?.value?.provider ??
+        ({
+          request: (args: { method: string; params?: unknown[] }) =>
+            (walletClient as any).request(args as any),
+        } as any);
 
       const twWallet = EIP1193.fromProvider({ provider });
       await twWallet.connect({ client });
