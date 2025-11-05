@@ -2,6 +2,8 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import { Providers } from "./providers";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export const metadata: Metadata = {
   title: "Mint U — Base NFT Mini App",
