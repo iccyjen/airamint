@@ -1,14 +1,10 @@
 "use client";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-export const fetchCache = "force-no-store";
-
 import { useEffect, useMemo, useState } from "react";
 import { useAccount, useBalance, useConnect } from "wagmi";
 import { ClaimButton } from "thirdweb/react";
 import { base } from "thirdweb/chains";
-import { client } from "./thirdweb";
+import { client } from "./providers";
 import { sdk } from "@farcaster/miniapp-sdk";
 import { createPublicClient, http } from "viem";
 import { base as viemBase } from "viem/chains";
@@ -16,14 +12,14 @@ import { base as viemBase } from "viem/chains";
 // ⚠️ 换成你的 DropERC721 合约地址
 const CONTRACT = "0xb18d766e6316a93B47338F1661a0b9566C16f979";
 
-// 环境变量（尽量保持最少）
+// —— 环境变量 —— //
 const IMG_LIST_RAW =
   process.env.NEXT_PUBLIC_IMG_LIST?.split(",").map((s) => s.trim()).filter(Boolean) || [];
 const IMG_CID = process.env.NEXT_PUBLIC_IMG_CID;
 const IMG_COUNT = Number(process.env.NEXT_PUBLIC_IMG_COUNT ?? "3");
 const TOTAL_SUPPLY_FALLBACK = Number(process.env.NEXT_PUBLIC_TOTAL_SUPPLY ?? "100");
 
-// 链上读取（仅读，不依赖钱包）
+// —— 链上读取（只读，不依赖钱包） —— //
 const publicClient = createPublicClient({
   chain: viemBase,
   transport: http("https://mainnet.base.org"),
@@ -49,11 +45,14 @@ async function tryReadUint(fn: string) {
     return null;
   }
 }
-const preferNonZero = (...vals: Array<bigint | null | undefined>) => {
+
+function preferNonZero(...vals: Array<bigint | null | undefined>): bigint | null {
   for (const v of vals) if (v != null && v !== 0n) return v;
   return null;
-};
+}
+
 async function fetchMintProgress() {
+  // minted 优先：totalMinted -> totalSupply -> nextTokenIdToClaim/nextTokenIdToMint
   const mintedBn =
     preferNonZero(
       await tryReadUint("totalMinted"),
@@ -62,6 +61,7 @@ async function fetchMintProgress() {
       await tryReadUint("nextTokenIdToMint"),
     ) ?? 0n;
 
+  // total 优先：maxTotalSupply -> maxSupply -> 环境变量
   const totalBn =
     preferNonZero(await tryReadUint("maxTotalSupply"), await tryReadUint("maxSupply")) ??
     BigInt(TOTAL_SUPPLY_FALLBACK);
@@ -69,7 +69,7 @@ async function fetchMintProgress() {
   return { minted: Number(mintedBn), total: Number(totalBn) || TOTAL_SUPPLY_FALLBACK };
 }
 
-// 轮播：优先 IMG_LIST；否则 IMG_CID + 序号
+// —— 轮播：优先使用 IMG_LIST；否则 IMG_CID + 序号 —— //
 function expandImgUrls(): string[] {
   if (IMG_LIST_RAW.length) return IMG_LIST_RAW;
   if (IMG_CID) {
@@ -79,23 +79,24 @@ function expandImgUrls(): string[] {
 }
 
 export default function Home() {
-  // 让小程序 SDK 就绪（避免某些客户端卡住）
-  useEffect(() => {
-    sdk.actions.ready().catch(() => {});
-  }, []);
-
   const { isConnected, address } = useAccount();
   const { connect, connectors } = useConnect();
+
   const { data: balance } = useBalance({
     address,
     chainId: 8453,
+    // v2 用 query 指定刷新行为（避免以前的 watch 报错）
     query: { refetchInterval: 15000, refetchOnWindowFocus: false },
   });
 
   const [txHash, setTxHash] = useState<string | null>(null);
 
-  // 已铸/总量
-  const [{ minted, total }, setProgress] = useState({ minted: 0, total: TOTAL_SUPPLY_FALLBACK });
+  // —— 顶部左侧：已铸 / 总量 —— //
+  const [{ minted, total }, setProgress] = useState<{ minted: number; total: number }>({
+    minted: 0,
+    total: TOTAL_SUPPLY_FALLBACK,
+  });
+
   useEffect(() => {
     let stop = false;
     const load = async () => {
@@ -112,27 +113,31 @@ export default function Home() {
     };
   }, []);
 
-  // Farcaster 头像（用户上下文 → Cast 作者兜底）
+  // —— 右上角：Farcaster 头像（回到修改前的简单取法） —— //
   const [pfp, setPfp] = useState<string | null>(null);
   useEffect(() => {
     (async () => {
       try {
-        await sdk.actions.ready();
         const anySdk: any = sdk as any;
-        const u = anySdk?.context?.user;
-        const loc = anySdk?.context?.location;
-        const fromUser = u?.pfpUrl || u?.pfp_url || u?.avatar_url;
-        const fromCast =
-          (loc?.type === "cast_embed" || loc?.type === "cast_share") ? loc?.cast?.author?.pfpUrl : undefined;
-        setPfp(fromUser || fromCast || null);
-      } catch {}
+        const ctx =
+          (await anySdk?.context?.getCurrentUser?.()) ||
+          (await anySdk?.context?.user?.()) ||
+          anySdk?.context ||
+          {};
+        const u = ctx?.user || ctx;
+        const url = u?.pfpUrl || u?.pfp_url || u?.avatar_url || null;
+        if (url) setPfp(url);
+      } catch {
+        // 忽略
+      }
     })();
   }, []);
 
-  // 轮播
+  // —— 轮播 —— //
   const allImgs = useMemo(() => expandImgUrls(), []);
   const [badSet, setBadSet] = useState<Set<string>>(new Set());
   const imgs = useMemo(() => allImgs.filter((u) => !badSet.has(u)), [allImgs, badSet]);
+
   const [idx, setIdx] = useState(0);
   useEffect(() => {
     if (!imgs.length) return;
@@ -151,7 +156,15 @@ export default function Home() {
       }}
     >
       {/* 顶部条 */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 16 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          marginBottom: 16,
+        }}
+      >
         <div style={{ fontWeight: 700, color: "#4b6bff" }}>
           {minted}/{total} minted
         </div>
@@ -199,6 +212,8 @@ export default function Home() {
       >
         Mint U！
       </h1>
+
+      {/* 说明副标题 */}
       <p style={{ textAlign: "center", color: "#375", opacity: 0.8, marginBottom: 16 }}>
         your cute onchain companions · generative collection on Base
       </p>
@@ -233,12 +248,15 @@ export default function Home() {
           />
         ) : (
           <div style={{ opacity: 0.6, fontWeight: 600, color: "#557", padding: 12, textAlign: "center" }}>
-            图片加载失败或未配置。请在 Vercel 设置 <b>NEXT_PUBLIC_IMG_LIST</b>（逗号分隔完整图片 URL）
+            图片加载失败或未配置。请在 Vercel 设置
+            <br />
+            <b>NEXT_PUBLIC_IMG_LIST</b>（逗号分隔完整图片 URL）
+            <br />或 <b>NEXT_PUBLIC_IMG_CID</b> + <b>NEXT_PUBLIC_IMG_COUNT</b>
           </div>
         )}
       </div>
 
-      {/* Share / Mint */}
+      {/* Share / Mint（保持你原来的连接逻辑） */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 420, margin: "0 auto" }}>
         <button
           onClick={() =>
@@ -270,7 +288,10 @@ export default function Home() {
             onTransactionConfirmed={(tx) => {
               setTxHash(tx.transactionHash);
               if (appUrl) {
-                sdk.actions.composeCast({ text: "我刚在 Base 铸了一枚 NFT（0.001 ETH）#MintU", embeds: [appUrl] });
+                sdk.actions.composeCast({
+                  text: "我刚在 Base 铸了一枚 NFT（0.001 ETH）#MintU",
+                  embeds: [appUrl],
+                });
               }
             }}
             onError={(e) => alert(`交易失败：${(e as Error).message}`)}
@@ -309,12 +330,14 @@ export default function Home() {
         )}
       </div>
 
-      {/* 余额 + 成功提示 */}
+      {/* 下方：余额 + 成功提示 */}
       <div style={{ maxWidth: 420, margin: "12px auto 0", textAlign: "center", color: "#334" }}>
         {isConnected ? (
           <p>
             Base 余额：{" "}
-            <b>{balance ? Number(balance.formatted).toFixed(4) : "--"} {balance?.symbol ?? "ETH"}</b>
+            <b>
+              {balance ? Number(balance.formatted).toFixed(4) : "--"} {balance?.symbol ?? "ETH"}
+            </b>
           </p>
         ) : (
           <p style={{ opacity: 0.8 }}>请先连接钱包（在 Warpcast Mini App 中打开）</p>
@@ -322,7 +345,10 @@ export default function Home() {
 
         {txHash && (
           <p style={{ marginTop: 8 }}>
-            交易成功： <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noreferrer">查看 Tx</a>
+            交易成功：{" "}
+            <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noreferrer">
+              查看 Tx
+            </a>
           </p>
         )}
       </div>
