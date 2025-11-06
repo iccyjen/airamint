@@ -1,4 +1,3 @@
-// providers.tsx
 "use client";
 
 import { ReactNode, useEffect } from "react";
@@ -14,7 +13,7 @@ function AutoReconnect() {
   useEffect(() => {
     (async () => {
       try { await sdk.actions.ready(); } catch {}
-      reconnect(); // 触发一次重连（Wagmi 默认也会重连，这里只是更“保险”）
+      reconnect(); // 触发一次重连，确保 Mini App 内置钱包就绪即连接
     })();
   }, [reconnect]);
   return null;
