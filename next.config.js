@@ -1,10 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true,
   webpack: (config) => {
-    // 避免可选依赖被解析（仅为降噪）
-    config.resolve.alias['pino-pretty'] = false;
+    // 忽略仅 RN 场景需要的可选依赖
+    config.resolve.alias['@react-native-async-storage/async-storage'] = false;
     return config;
-  }
+  },
 };
 module.exports = nextConfig;
