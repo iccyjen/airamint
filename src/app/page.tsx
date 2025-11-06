@@ -1,3 +1,5 @@
+"use client";
+
 export const dynamic = "force-dynamic";
 export const revalidate = false; // 避免 SSG/ISR，彻底杜绝预渲染时的 wagmi 报错
 
