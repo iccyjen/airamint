@@ -1,7 +1,11 @@
-"use client";
+export const dynamic = "force-dynamic";
+export const revalidate = false; // 避免 SSG/ISR，彻底杜绝预渲染时的 wagmi 报错
 
-export const dynamic = "force-dynamic"; // ✅ 禁止在构建期预渲染
-export const revalidate = 0;
+import HomeClient from "./home-client";
+export default function Page() {
+  return <HomeClient />;
+}
+
 
 import { useEffect, useMemo, useState } from "react";
 import { useAccount, useBalance, useConnect } from "wagmi";
