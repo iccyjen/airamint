@@ -1,25 +1,33 @@
 "use client";
-export const dynamic = "force-dynamic";
+
+export const dynamic = "force-dynamic"; // ✅ 禁止在构建期预渲染
+export const revalidate = 0;
+
 import { useEffect, useMemo, useState } from "react";
 import { useAccount, useBalance, useConnect } from "wagmi";
 import { ClaimButton } from "thirdweb/react";
-import { base } from "thirdweb/chains";
-import { client } from "./providers";
+import { base as thirdwebBase } from "thirdweb/chains";
+import { createThirdwebClient } from "thirdweb";
 import { sdk } from "@farcaster/miniapp-sdk";
 import { createPublicClient, http } from "viem";
 import { base as viemBase } from "viem/chains";
 
-// ⚠️ 换成你的 DropERC721 合约地址
+// ⚠️ 你的 DropERC721 合约地址
 const CONTRACT = "0xb18d766e6316a93B47338F1661a0b9566C16f979";
 
+// thirdweb client（直接在本文件创建，避免跨文件导出问题）
+const client = createThirdwebClient({
+  clientId: process.env.NEXT_PUBLIC_THIRDWEB_CLIENT_ID!,
+});
+
 // —— 环境变量 —— //
-const IMG_LIST_RAW =
-  process.env.NEXT_PUBLIC_IMG_LIST?.split(",").map((s) => s.trim()).filter(Boolean) || [];
+const IPFS_GATEWAY = (process.env.NEXT_PUBLIC_IPFS_GATEWAY || "https://ipfs.io").replace(/\/+$/, "");
 const IMG_CID = process.env.NEXT_PUBLIC_IMG_CID;
-const IMG_COUNT = Number(process.env.NEXT_PUBLIC_IMG_COUNT ?? "3");
+const IMG_COUNT = Number(process.env.NEXT_PUBLIC_IMG_COUNT ?? "8");
+const IMG_LIST_RAW = process.env.NEXT_PUBLIC_IMG_LIST?.split(",").map(s => s.trim()).filter(Boolean) || [];
 const TOTAL_SUPPLY_FALLBACK = Number(process.env.NEXT_PUBLIC_TOTAL_SUPPLY ?? "100");
 
-// —— 链上读取（只读，不依赖钱包） —— //
+// —— 链上读取 —— //
 const publicClient = createPublicClient({
   chain: viemBase,
   transport: http("https://mainnet.base.org"),
@@ -52,16 +60,13 @@ function preferNonZero(...vals: Array<bigint | null | undefined>): bigint | null
 }
 
 async function fetchMintProgress() {
-  // minted 优先：totalMinted -> totalSupply -> nextTokenIdToClaim/nextTokenIdToMint
   const mintedBn =
     preferNonZero(
       await tryReadUint("totalMinted"),
       await tryReadUint("totalSupply"),
       await tryReadUint("nextTokenIdToClaim"),
-      await tryReadUint("nextTokenIdToMint"),
     ) ?? 0n;
 
-  // total 优先：maxTotalSupply -> maxSupply -> 环境变量
   const totalBn =
     preferNonZero(await tryReadUint("maxTotalSupply"), await tryReadUint("maxSupply")) ??
     BigInt(TOTAL_SUPPLY_FALLBACK);
@@ -69,29 +74,43 @@ async function fetchMintProgress() {
   return { minted: Number(mintedBn), total: Number(totalBn) || TOTAL_SUPPLY_FALLBACK };
 }
 
-// —— 轮播：优先使用 IMG_LIST；否则 IMG_CID + 序号 —— //
+// —— 轮播：支持 IMG_LIST（优先）或 IMG_CID —— //
 function expandImgUrls(): string[] {
-  if (IMG_LIST_RAW.length) return IMG_LIST_RAW;
+  if (IMG_LIST_RAW.length) {
+    const urls: string[] = [];
+    const isImage = (u: string) => /\.(png|jpg|jpeg|gif|webp|svg)(\?.*)?$/i.test(u);
+    for (const item of IMG_LIST_RAW) {
+      if (isImage(item)) urls.push(item);
+      else {
+        const dir = item.replace(/\/+$/, "");
+        for (let i = 1; i <= IMG_COUNT; i++) urls.push(`${dir}/${i}.png`);
+      }
+    }
+    return urls;
+  }
   if (IMG_CID) {
-    return Array.from({ length: IMG_COUNT }, (_, i) => `https://ipfs.io/ipfs/${IMG_CID}/${i + 1}.png`);
+    return Array.from({ length: IMG_COUNT }, (_, i) => `${IPFS_GATEWAY}/ipfs/${IMG_CID}/${i + 1}.png`);
   }
   return [];
 }
 
 export default function Home() {
+  useEffect(() => {
+    sdk.actions.ready().catch(() => {});
+  }, []);
+
   const { isConnected, address } = useAccount();
   const { connect, connectors } = useConnect();
 
   const { data: balance } = useBalance({
     address,
     chainId: 8453,
-    // v2 用 query 指定刷新行为（避免以前的 watch 报错）
     query: { refetchInterval: 15000, refetchOnWindowFocus: false },
   });
 
   const [txHash, setTxHash] = useState<string | null>(null);
 
-  // —— 顶部左侧：已铸 / 总量 —— //
+  // —— 已铸/总量 —— //
   const [{ minted, total }, setProgress] = useState<{ minted: number; total: number }>({
     minted: 0,
     total: TOTAL_SUPPLY_FALLBACK,
@@ -113,23 +132,20 @@ export default function Home() {
     };
   }, []);
 
-  // —— 右上角：Farcaster 头像（回到修改前的简单取法） —— //
+  // —— 头像（先尝试 context.user，再尝试 cast.author） —— //
   const [pfp, setPfp] = useState<string | null>(null);
   useEffect(() => {
     (async () => {
       try {
+        await sdk.actions.ready();
         const anySdk: any = sdk as any;
-        const ctx =
-          (await anySdk?.context?.getCurrentUser?.()) ||
-          (await anySdk?.context?.user?.()) ||
-          anySdk?.context ||
-          {};
-        const u = ctx?.user || ctx;
-        const url = u?.pfpUrl || u?.pfp_url || u?.avatar_url || null;
-        if (url) setPfp(url);
-      } catch {
-        // 忽略
-      }
+        const u = anySdk?.context?.user;
+        const loc = anySdk?.context?.location;
+        const fromUser = u?.pfpUrl || u?.pfp_url || u?.avatar_url;
+        const fromCast =
+          (loc?.type === "cast_embed" || loc?.type === "cast_share") ? loc?.cast?.author?.pfpUrl : undefined;
+        setPfp(fromUser || fromCast || null);
+      } catch {}
     })();
   }, []);
 
@@ -156,41 +172,13 @@ export default function Home() {
       }}
     >
       {/* 顶部条 */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12,
-          marginBottom: 16,
-        }}
-      >
-        <div style={{ fontWeight: 700, color: "#4b6bff" }}>
-          {minted}/{total} minted
-        </div>
-
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, color: "#4b6bff" }}>{minted}/{total} minted</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {pfp ? (
-            <img
-              src={pfp}
-              width={32}
-              height={32}
-              style={{ borderRadius: "50%", border: "2px solid #fff", boxShadow: "0 0 0 2px #aab6ff" }}
-              alt="pfp"
-            />
+            <img src={pfp} width={32} height={32} style={{ borderRadius: "50%", border: "2px solid #fff", boxShadow: "0 0 0 2px #aab6ff" }} alt="pfp" />
           ) : (
-            <div
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: "50%",
-                background: "#8aa0ff",
-                display: "grid",
-                placeItems: "center",
-                color: "#fff",
-                fontWeight: 700,
-              }}
-            >
+            <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#8aa0ff", display: "grid", placeItems: "center", color: "#fff", fontWeight: 700 }}>
               {(address ?? "U").slice(2, 3).toUpperCase()}
             </div>
           )}
@@ -198,22 +186,10 @@ export default function Home() {
       </div>
 
       {/* 标题 */}
-      <h1
-        style={{
-          textAlign: "center",
-          fontSize: 44,
-          lineHeight: 1.05,
-          margin: "8px 0 16px",
-          background: "linear-gradient(90deg,#b05bff,#ff6ac6)",
-          WebkitBackgroundClip: "text",
-          color: "transparent",
-          fontWeight: 900,
-        }}
-      >
+      <h1 style={{ textAlign: "center", fontSize: 44, lineHeight: 1.05, margin: "8px 0 16px", background: "linear-gradient(90deg,#b05bff,#ff6ac6)", WebkitBackgroundClip: "text", color: "transparent", fontWeight: 900 }}>
         Mint U！
       </h1>
 
-      {/* 说明副标题 */}
       <p style={{ textAlign: "center", color: "#375", opacity: 0.8, marginBottom: 16 }}>
         your cute onchain companions · generative collection on Base
       </p>
@@ -256,7 +232,7 @@ export default function Home() {
         )}
       </div>
 
-      {/* Share / Mint（保持你原来的连接逻辑） */}
+      {/* Share / Mint */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 420, margin: "0 auto" }}>
         <button
           onClick={() =>
@@ -265,16 +241,7 @@ export default function Home() {
               ...(appUrl ? { embeds: [appUrl] } : {}),
             })
           }
-          style={{
-            padding: "12px 16px",
-            borderRadius: 12,
-            background: "#4d76ff",
-            color: "#fff",
-            border: "none",
-            cursor: "pointer",
-            fontWeight: 700,
-            boxShadow: "0 6px 16px rgba(77,118,255,.35)",
-          }}
+          style={{ padding: "12px 16px", borderRadius: 12, background: "#4d76ff", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, boxShadow: "0 6px 16px rgba(77,118,255,.35)" }}
         >
           Share
         </button>
@@ -282,7 +249,7 @@ export default function Home() {
         {isConnected ? (
           <ClaimButton
             client={client}
-            chain={base}
+            chain={thirdwebBase}
             contractAddress={CONTRACT}
             claimParams={{ type: "ERC721" as const, quantity: 1n }}
             onTransactionConfirmed={(tx) => {
@@ -295,16 +262,7 @@ export default function Home() {
               }
             }}
             onError={(e) => alert(`交易失败：${(e as Error).message}`)}
-            style={{
-              padding: "12px 16px",
-              borderRadius: 12,
-              background: "#6a5cff",
-              color: "#fff",
-              border: "none",
-              cursor: "pointer",
-              fontWeight: 700,
-              boxShadow: "0 6px 16px rgba(106,92,255,.35)",
-            }}
+            style={{ padding: "12px 16px", borderRadius: 12, background: "#6a5cff", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, boxShadow: "0 6px 16px rgba(106,92,255,.35)" }}
           >
             Mint
           </ClaimButton>
@@ -313,16 +271,7 @@ export default function Home() {
             <button
               key={c.id}
               onClick={() => connect({ connector: c })}
-              style={{
-                padding: "12px 16px",
-                borderRadius: 12,
-                background: "#6a5cff",
-                color: "#fff",
-                border: "none",
-                cursor: "pointer",
-                fontWeight: 700,
-                boxShadow: "0 6px 16px rgba(106,92,255,.35)",
-              }}
+              style={{ padding: "12px 16px", borderRadius: 12, background: "#6a5cff", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, boxShadow: "0 6px 16px rgba(106,92,255,.35)" }}
             >
               连接 {c.name}
             </button>
@@ -335,20 +284,14 @@ export default function Home() {
         {isConnected ? (
           <p>
             Base 余额：{" "}
-            <b>
-              {balance ? Number(balance.formatted).toFixed(4) : "--"} {balance?.symbol ?? "ETH"}
-            </b>
+            <b>{balance ? Number(balance.formatted).toFixed(4) : "--"} {balance?.symbol ?? "ETH"}</b>
           </p>
         ) : (
           <p style={{ opacity: 0.8 }}>请先连接钱包（在 Warpcast Mini App 中打开）</p>
         )}
-
         {txHash && (
           <p style={{ marginTop: 8 }}>
-            交易成功：{" "}
-            <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noreferrer">
-              查看 Tx
-            </a>
+            交易成功： <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noreferrer">查看 Tx</a>
           </p>
         )}
       </div>
