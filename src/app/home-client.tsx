@@ -12,16 +12,6 @@ import { base as viemBase } from "viem/chains";
 // ⚠️ 你的 DropERC721 合约地址
 const CONTRACT = "0xb18d766e6316a93B47338F1661a0b9566C16f979";
 
-// thirdweb client（直接在本文件创建，避免跨文件导出问题）
-const clientId = process.env.NEXT_PUBLIC_THIRDWEB_CLIENT_ID;
-if (!clientId) {
-  // 避免运行时因为未配置 env 直接崩掉 —— 给出友好提示
-  // 这条不会影响构建，只在客户端报个警告
-  // 你也可以改成 throw Error 停止渲染
-  console.warn("Missing NEXT_PUBLIC_THIRDWEB_CLIENT_ID env var.");
-}
-const client = createThirdwebClient({ clientId: clientId || "missing-client-id" });
-
 // —— 环境变量 —— //
 const IPFS_GATEWAY = (process.env.NEXT_PUBLIC_IPFS_GATEWAY || "https://ipfs.io").replace(/\/+$/, "");
 const IMG_CID = process.env.NEXT_PUBLIC_IMG_CID;
@@ -97,8 +87,35 @@ function expandImgUrls(): string[] {
 }
 
 export default function HomeClient() {
+  // 全局错误监听（便于定位 "Application error" 的真实原因）
+  useEffect(() => {
+    const onErr = (e: ErrorEvent) => console.error("GlobalError:", e.message, e.error);
+    const onRej = (e: PromiseRejectionEvent) => console.error("UnhandledRejection:", e.reason);
+    window.addEventListener("error", onErr);
+    window.addEventListener("unhandledrejection", onRej);
+    return () => {
+      window.removeEventListener("error", onErr);
+      window.removeEventListener("unhandledrejection", onRej);
+    };
+  }, []);
+
   useEffect(() => {
     sdk.actions.ready().catch(() => {});
+  }, []);
+
+  // 懒创建 thirdweb client（缺 env 时不崩页）
+  const client = useMemo(() => {
+    const id = process.env.NEXT_PUBLIC_THIRDWEB_CLIENT_ID;
+    if (!id) {
+      console.warn("Missing NEXT_PUBLIC_THIRDWEB_CLIENT_ID");
+      return null;
+    }
+    try {
+      return createThirdwebClient({ clientId: id });
+    } catch (e) {
+      console.error("thirdweb client init failed:", e);
+      return null;
+    }
   }, []);
 
   const { isConnected, address } = useAccount();
@@ -249,54 +266,26 @@ export default function HomeClient() {
         </button>
 
         {isConnected ? (
-          <ClaimButton
-            client={client}
-            chain={thirdwebBase}
-            contractAddress={CONTRACT}
-            claimParams={{ type: "ERC721" as const, quantity: 1n }}
-            onTransactionConfirmed={(tx) => {
-              setTxHash(tx.transactionHash);
-              if (appUrl) {
-                sdk.actions.composeCast({
-                  text: "我刚在 Base 铸了一枚 NFT（0.001 ETH）#MintU",
-                  embeds: [appUrl],
-                });
-              }
-            }}
-            onError={(e) => alert(`交易失败：${(e as Error).message}`)}
-            style={{ padding: "12px 16px", borderRadius: 12, background: "#6a5cff", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, boxShadow: "0 6px 16px rgba(106,92,255,.35)" }}
-          >
-            Mint
-          </ClaimButton>
-        ) : (
-          connectors.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => connect({ connector: c })}
+          client ? (
+            <ClaimButton
+              client={client}
+              chain={thirdwebBase}
+              contractAddress={CONTRACT}
+              claimParams={{ type: "ERC721" as const, quantity: 1n }}
+              onTransactionConfirmed={(tx) => {
+                setTxHash(tx.transactionHash);
+                if (appUrl) {
+                  sdk.actions.composeCast({
+                    text: "我刚在 Base 铸了一枚 NFT（0.001 ETH）#MintU",
+                    embeds: [appUrl],
+                  });
+                }
+              }}
+              onError={(e) => alert(`交易失败：${(e as Error).message}`)}
               style={{ padding: "12px 16px", borderRadius: 12, background: "#6a5cff", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, boxShadow: "0 6px 16px rgba(106,92,255,.35)" }}
             >
-              连接 {c.name}
-            </button>
-          ))
-        )}
-      </div>
-
-      {/* 下方：余额 + 成功提示 */}
-      <div style={{ maxWidth: 420, margin: "12px auto 0", textAlign: "center", color: "#334" }}>
-        {isConnected ? (
-          <p>
-            Base 余额：{" "}
-            <b>{balance ? Number(balance.formatted).toFixed(4) : "--"} {balance?.symbol ?? "ETH"}</b>
-          </p>
-        ) : (
-          <p style={{ opacity: 0.8 }}>请先连接钱包（在 Warpcast Mini App 中打开）</p>
-        )}
-        {txHash && (
-          <p style={{ marginTop: 8 }}>
-            交易成功： <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noreferrer">查看 Tx</a>
-          </p>
-        )}
-      </div>
-    </main>
-  );
-}
+              Mint
+            </ClaimButton>
+          ) : (
+            <button
+              onClick={() => alert("缺少 NEXT_PUBLIC_THIRDWEB_CLIENT_ID，去 Vercel → Settings → Envi
