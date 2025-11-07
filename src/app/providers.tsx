@@ -1,34 +1,25 @@
-"use client";
+import { createConfig, http, cookieStorage, createStorage } from "wagmi";
+import { base } from "wagmi/chains";
+import { farcasterMiniApp as miniAppConnector } from "@farcaster/miniapp-wagmi-connector";
+import { injected } from "wagmi/connectors";
 
-import { ReactNode, useEffect } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { WagmiProvider, useReconnect } from "wagmi";
-import { config } from "../wagmi";
-import { sdk } from "@farcaster/miniapp-sdk";
-import { ThirdwebProvider } from "thirdweb/react"; // v5: 仅负责注入 React Query
+export const config = createConfig({
+  chains: [base],
+  transports: { [base.id]: http() },
+  ssr: true,
+  storage: createStorage({ storage: cookieStorage }),
+  // 关掉多注入钱包自动发现，避免一长串重复注入按钮
+  multiInjectedProviderDiscovery: false,
+  // 连接器顺序：先 Farcaster MiniApp，再浏览器注入（MetaMask/Rabby/OKX 等）
+  connectors: [
+    miniAppConnector(),
+    injected({ shimDisconnect: true }),
+  ],
+});
 
-const queryClient = new QueryClient();
-
-function AutoReconnect() {
-  const { reconnect } = useReconnect();
-  useEffect(() => {
-    (async () => {
-      try { await sdk.actions.ready(); } catch {}
-      reconnect(); // Mini App 环境里触发一次重连
-    })();
-  }, [reconnect]);
-  return null;
-}
-
-export function Providers({ children }: { children: React.ReactNode }) {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <WagmiProvider config={config}>
-        <ThirdwebProvider>
-          <AutoReconnect />
-          {children}
-        </ThirdwebProvider>
-      </WagmiProvider>
-    </QueryClientProvider>
-  );
+// 让 TS 能推断 hooks 的 config 类型（可选）
+declare module "wagmi" {
+  interface Register {
+    config: typeof config;
+  }
 }
