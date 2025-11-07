@@ -109,6 +109,56 @@ export default function HomeClient() {
     sdk.actions.ready().catch(() => {});
   }, []);
 
+  // ====== 环境检测 & Farcaster 连接 ======
+  const { isConnected, address } = useAccount();
+  const { connect, connectors } = useConnect();
+  const [inWarpcast, setInWarpcast] = useState<boolean | null>(null);
+  const [connectErr, setConnectErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        await sdk.actions.ready();
+        const anySdk: any = sdk as any;
+        const clientName =
+          anySdk?.context?.location?.client?.name || anySdk?.context?.client?.name || "";
+        setInWarpcast(String(clientName).toLowerCase() === "warpcast");
+      } catch {
+        setInWarpcast(false);
+      }
+    })();
+  }, []);
+
+  const farcasterConnector = useMemo(
+    () =>
+      connectors.find(
+        (c) =>
+          /farcaster|warp/i.test(c.name) ||
+          c.id === "farcaster" ||
+          c.id === "farcasterMiniApp"
+      ),
+    [connectors]
+  );
+
+  // 进入 Mini App 且未连接时自动尝试一次 Farcaster 连接
+  useEffect(() => {
+    (async () => {
+      try { await sdk.actions.ready(); } catch {}
+      if (inWarpcast && !isConnected && farcasterConnector) {
+        try {
+          await connect({ connector: farcasterConnector });
+          setConnectErr(null);
+        } catch (e: any) {
+          const msg = e?.message || String(e);
+          console.warn("auto-connect farcaster failed:", e);
+          setConnectErr(msg);
+        }
+      }
+    })();
+    // 仅初次/关键依赖变化时触发
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inWarpcast, farcasterConnector]);
+
   // 懒创建 thirdweb client（缺 env 时不崩页）
   const client = useMemo(() => {
     const id = process.env.NEXT_PUBLIC_THIRDWEB_CLIENT_ID;
@@ -123,9 +173,6 @@ export default function HomeClient() {
       return null;
     }
   }, []);
-
-  const { isConnected, address } = useAccount();
-  const { connect, connectors } = useConnect();
 
   const { data: balance } = useBalance({
     address,
@@ -222,6 +269,25 @@ export default function HomeClient() {
           )}
         </div>
       </div>
+
+      {/* 非 Warpcast 环境 / 连接失败提示（仅在未连接时显示） */}
+      {!isConnected && (
+        <div style={{ maxWidth: 520, margin: "0 auto 10px", fontSize: 13, lineHeight: 1.35 }}>
+          {inWarpcast === false && (
+            <div style={{ color: "#854", marginBottom: 6 }}>
+              检测到当前<strong>不是</strong> Warpcast Mini App 环境。请从 Warpcast 内点击 “Open / Launch Mini App” 再试。
+            </div>
+          )}
+          {inWarpcast && farcasterConnector && connectErr && (
+            <div style={{ color: "#a33" }}>
+              Farcaster 连接失败：{connectErr}
+              <div style={{ opacity: 0.8 }}>
+                若从未创建过 In-App Wallet，请在 Warpcast → Profile → Wallet 中先创建；或清一次 App 缓存后重试。
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 标题 */}
       <h1
@@ -354,24 +420,55 @@ export default function HomeClient() {
             </button>
           )
         ) : (
-          connectors.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => connect({ connector: c })}
-              style={{
-                padding: "12px 16px",
-                borderRadius: 12,
-                background: "#6a5cff",
-                color: "#fff",
-                border: "none",
-                cursor: "pointer",
-                fontWeight: 700,
-                boxShadow: "0 6px 16px rgba(106,92,255,.35)",
-              }}
-            >
-              连接 {c.name}
-            </button>
-          ))
+          <>
+            {/* 优先提供 Farcaster 专用按钮（仅在 Warpcast 环境显示） */}
+            {inWarpcast && farcasterConnector && (
+              <button
+                onClick={async () => {
+                  try {
+                    await connect({ connector: farcasterConnector });
+                    setConnectErr(null);
+                  } catch (e: any) {
+                    setConnectErr(e?.message || String(e));
+                  }
+                }}
+                style={{
+                  padding: "12px 16px",
+                  borderRadius: 12,
+                  background: "#6a5cff",
+                  color: "#fff",
+                  border: "none",
+                  cursor: "pointer",
+                  fontWeight: 700,
+                  boxShadow: "0 6px 16px rgba(106,92,255,.35)",
+                }}
+              >
+                连接 Farcaster 钱包
+              </button>
+            )}
+
+            {/* 其他连接器作为兜底 */}
+            {connectors
+              .filter((c) => c !== farcasterConnector)
+              .map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => connect({ connector: c })}
+                  style={{
+                    padding: "12px 16px",
+                    borderRadius: 12,
+                    background: "#6a5cff",
+                    color: "#fff",
+                    border: "none",
+                    cursor: "pointer",
+                    fontWeight: 700,
+                    boxShadow: "0 6px 16px rgba(106,92,255,.35)",
+                  }}
+                >
+                  连接 {c.name}
+                </button>
+              ))}
+          </>
         )}
       </div>
 
@@ -382,7 +479,9 @@ export default function HomeClient() {
             Base 余额： <b>{balance ? Number(balance.formatted).toFixed(4) : "--"} {balance?.symbol ?? "ETH"}</b>
           </p>
         ) : (
-          <p style={{ opacity: 0.8 }}>请先连接钱包（在 Warpcast Mini App 中打开）</p>
+          <p style={{ opacity: 0.8 }}>
+            如果连接失败：请在 Warpcast → Profile → Wallet 创建 In-App Wallet，并授权该 Mini App 使用。
+          </p>
         )}
         {txHash && (
           <p style={{ marginTop: 8 }}>
