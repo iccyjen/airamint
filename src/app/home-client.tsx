@@ -3,34 +3,53 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useAccount, useBalance, useConnect } from "wagmi";
 import { ClaimButton } from "thirdweb/react";
-import { base as thirdwebBase } from "thirdweb/chains";
+// MENGGANTI: thirdweb/chains/base -> thirdweb/chains/sepolia
+import { sepolia as thirdwebSepolia } from "thirdweb/chains";
 import { createThirdwebClient } from "thirdweb";
 import { sdk } from "@farcaster/miniapp-sdk";
+// MENGGANTI: viem/chains/base -> viem/chains/sepolia
 import { createPublicClient, http, type Address } from "viem";
-import { base as viemBase } from "viem/chains";
+import { sepolia as viemSepolia } from "viem/chains";
 import { farcasterMiniApp as miniAppConnector } from "@farcaster/miniapp-wagmi-connector";
 
-// ====== 合约与显示配置 ======
-const CONTRACT = "0xb18d766e6316a93B47338F1661a0b9566C16f979";
+// ====================================================================
+// ============= PERHATIAN! SEPOLIA CONFIGURATION START =============
+// ====================================================================
 
-// 固定头像（支持 ENV 覆盖）
+// MENGGANTI: Ganti alamat kontrak ini dengan alamat kontrak Sepolia Anda
+const CONTRACT = "0xf91387e69B21E1914AA5Fc8A40E36C2219cf918c"; 
+
+// FIXED_PFP_URL, IPFS_GATEWAY, IMG_CID, IMG_COUNT, IMG_LIST_RAW, TOTAL_SUPPLY_FALLBACK
+// Dibiarkan sama karena ini adalah konfigurasi tampilan, bukan konfigurasi blockchain.
+
+// ====== Konfigurasi Chain ID untuk Sepolia ======
+const SEPOLIA_CHAIN_ID = 11155111; // Sepolia Chain ID
+
+// ====================================================================
+// ============= PERHATIAN! SEPOLIA CONFIGURATION END =============
+// ====================================================================
+
+
+// ====== Gambar & Konfigurasi Lain (Dibiarkan sama) ======
 const FIXED_PFP_URL =
   process.env.NEXT_PUBLIC_PFP_URL ??
-  "https://imagedelivery.net/BXluQx4ige9GuW0Ia56BHw/b312c673-540d-4e41-3b61-457fbd971c00/original";
+  "https://z0afnvbjxg97jpeq.public.blob.vercel-storage.com/icon.png";
 
-// ====== 图片轮播配置（两种来源：IMG_LIST 优先；否则 IMG_CID + IMG_COUNT）======
 const IPFS_GATEWAY = (process.env.NEXT_PUBLIC_IPFS_GATEWAY || "https://ipfs.io").replace(/\/+$/, "");
 const IMG_CID = process.env.NEXT_PUBLIC_IMG_CID;
 const IMG_COUNT = Number(process.env.NEXT_PUBLIC_IMG_COUNT ?? "8");
 const IMG_LIST_RAW = process.env.NEXT_PUBLIC_IMG_LIST?.split(",").map(s => s.trim()).filter(Boolean) || [];
-const TOTAL_SUPPLY_FALLBACK = Number(process.env.NEXT_PUBLIC_TOTAL_SUPPLY ?? "100");
+const TOTAL_SUPPLY_FALLBACK = Number(process.env.NEXT_PUBLIC_TOTAL_SUPPLY ?? "515");
 
-// ====== 链上读取（铸造进度等）======
+// ====== Chain Reading (Minting progress etc.) ======
 const publicClient = createPublicClient({
-  chain: viemBase,
-  transport: http("https://mainnet.base.org"),
+  // MENGGANTI: viemBase -> viemSepolia
+  chain: viemSepolia,
+  // MENGGANTI: Base mainnet RPC -> Sepolia RPC (Anda mungkin perlu menggantinya dengan RPC Sepolia yang lebih andal)
+  transport: http("https://eth-sepolia.public.blastapi.io"),
 });
 
+// Fungsi-fungsi tryReadUint, preferNonZero, fetchMintProgress (Dibiarkan sama)
 async function tryReadUint(fn: string) {
   try {
     const out = await publicClient.readContract({
@@ -72,7 +91,7 @@ async function fetchMintProgress() {
   return { minted: Number(mintedBn), total: Number(totalBn) || TOTAL_SUPPLY_FALLBACK };
 }
 
-// ====== 展开轮播图片 URL 列表 ======
+// Fungsi expandImgUrls (Dibiarkan sama)
 function expandImgUrls(): string[] {
   if (IMG_LIST_RAW.length) {
     const urls: string[] = [];
@@ -93,7 +112,7 @@ function expandImgUrls(): string[] {
 }
 
 export default function HomeClient() {
-  // 全局错误监听（便于定位运行时异常）
+  // Global error listeners and MiniApp ready (Dibiarkan sama)
   useEffect(() => {
     const onErr = (e: ErrorEvent) => console.error("GlobalError:", e.message, e.error);
     const onRej = (e: PromiseRejectionEvent) => console.error("UnhandledRejection:", e.reason);
@@ -105,17 +124,15 @@ export default function HomeClient() {
     };
   }, []);
 
-  // MiniApp 环境准备（用于 Share 等）
   useEffect(() => {
     sdk.actions.ready().catch(() => {});
   }, []);
 
-  // ====== 账户 & 连接 ======
+  // Account & Connect (Dibiarkan sama)
   const { isConnected, address } = useAccount();
   const { connect, connectors } = useConnect();
   const [connectErr, setConnectErr] = useState<string | null>(null);
 
-  // 调试：打印连接器列表
   useEffect(() => {
     try {
       // @ts-ignore
@@ -124,7 +141,6 @@ export default function HomeClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 兜底：即使 connectors 列表里没有，也本地构造一个 Farcaster 连接器
   const fcFallback = useMemo(() => {
     try {
       return miniAppConnector();
@@ -133,7 +149,6 @@ export default function HomeClient() {
     }
   }, []);
 
-  // 优先用已有；否则用兜底
   const farcasterConnector = useMemo(() => {
     const found = connectors.find(
       (c) =>
@@ -144,7 +159,6 @@ export default function HomeClient() {
     return found ?? fcFallback;
   }, [connectors, fcFallback]);
 
-  // 自动尝试连接 Farcaster（不依赖环境判断）
   useEffect(() => {
     (async () => {
       try { await sdk.actions.ready(); } catch {}
@@ -158,11 +172,10 @@ export default function HomeClient() {
         }
       }
     })();
-    // 仅在 farcasterConnector 变化时再试一次
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [farcasterConnector]);
 
-  // 懒创建 thirdweb client（缺 env 时不崩页）
+  // thirdweb client (Dibiarkan sama)
   const client = useMemo(() => {
     const id = process.env.NEXT_PUBLIC_THIRDWEB_CLIENT_ID;
     if (!id) {
@@ -177,16 +190,17 @@ export default function HomeClient() {
     }
   }, []);
 
-  // 余额
+  // Balance
   const { data: balance } = useBalance({
     address,
-    chainId: 8453,
+    // MENGGANTI: Base Chain ID (8453) -> Sepolia Chain ID (11155111)
+    chainId: SEPOLIA_CHAIN_ID,
     query: { refetchInterval: 15000, refetchOnWindowFocus: false },
   });
 
   const [txHash, setTxHash] = useState<string | null>(null);
 
-  // 已铸/总量
+  // Minted/Total (Dibiarkan sama)
   const [{ minted, total }, setProgress] = useState<{ minted: number; total: number }>({
     minted: 0,
     total: TOTAL_SUPPLY_FALLBACK,
@@ -208,10 +222,9 @@ export default function HomeClient() {
     };
   }, []);
 
-  // 头像（固定 URL + 失败回退）
+  // Pfp & Carousel (Dibiarkan sama)
   const [pfpFailed, setPfpFailed] = useState(false);
 
-  // 轮播
   const allImgs = useMemo(() => expandImgUrls(), []);
   const [badSet, setBadSet] = useState<Set<string>>(new Set());
   const imgs = useMemo(() => allImgs.filter((u) => !badSet.has(u)), [allImgs, badSet]);
@@ -233,7 +246,7 @@ export default function HomeClient() {
         background: "linear-gradient(180deg,#c9dcff 0%,#b8d0ff 30%,#a9c7ff 100%)",
       }}
     >
-      {/* 顶部条 */}
+      {/* Top Bar (Dibiarkan sama) */}
       <div
         style={{
           display: "flex",
@@ -274,7 +287,7 @@ export default function HomeClient() {
         </div>
       </div>
 
-      {/* 连接报错（未连接时才提示） */}
+      {/* Connect Error (Dibiarkan sama) */}
       {!isConnected && connectErr && (
         <div style={{ maxWidth: 520, margin: "0 auto 10px", fontSize: 13, lineHeight: 1.35, color: "#a33" }}>
           Farcaster 连接失败：{connectErr}
@@ -284,7 +297,7 @@ export default function HomeClient() {
         </div>
       )}
 
-      {/* 标题 */}
+      {/* Title & Subtitle (Dibiarkan sama) */}
       <h1
         style={{
           textAlign: "center",
@@ -297,14 +310,14 @@ export default function HomeClient() {
           fontWeight: 900,
         }}
       >
-        Mint U！
+        aira chan ！
       </h1>
 
       <p style={{ textAlign: "center", color: "#375", opacity: 0.8, marginBottom: 16 }}>
-        your cute onchain companions · generative collection on Base
+        mint your aira chan · join aira chan fans club
       </p>
 
-      {/* 主图卡片 */}
+      {/* Main Image Card (Dibiarkan sama) */}
       <div
         style={{
           maxWidth: 420,
@@ -344,10 +357,11 @@ export default function HomeClient() {
 
       {/* Share / Mint */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 420, margin: "0 auto" }}>
+        {/* Share Button (Dibiarkan sama, perlu disesuaikan teks/hashtag) */}
         <button
           onClick={() =>
             sdk.actions.composeCast({
-              text: "我刚在 Base 铸了一枚 NFT（0.001 ETH）#MintU",
+              text: "我刚在 Sepolia 铸了一枚 NFT（0.001 ETH）#MintU", // Perbarui teks
               ...(appUrl ? { embeds: [appUrl] } : {}),
             })
           }
@@ -365,18 +379,20 @@ export default function HomeClient() {
           Share
         </button>
 
+        {/* ClaimButton */}
         {isConnected ? (
           client ? (
             <ClaimButton
               client={client}
-              chain={thirdwebBase}
+              // MENGGANTI: thirdwebBase -> thirdwebSepolia
+              chain={thirdwebSepolia}
               contractAddress={CONTRACT}
               claimParams={{ type: "ERC721" as const, quantity: 1n }}
               onTransactionConfirmed={(tx) => {
                 setTxHash(tx.transactionHash);
                 if (appUrl) {
                   sdk.actions.composeCast({
-                    text: "我刚在 Base 铸了一枚 NFT（0.001 ETH）#MintU",
+                    text: "我刚在 Sepolia 铸了一枚 NFT（0.001 ETH）#MintU", // Perbarui teks
                     embeds: [appUrl],
                   });
                 }
@@ -416,7 +432,7 @@ export default function HomeClient() {
           )
         ) : (
           <>
-            {/* 永远显示 Farcaster 专用按钮（只要可用） */}
+            {/* Farcaster Connect Button (Dibiarkan sama) */}
             {farcasterConnector && (
               <button
                 onClick={async () => {
@@ -442,7 +458,7 @@ export default function HomeClient() {
               </button>
             )}
 
-            {/* 其他连接器作为兜底 */}
+            {/* Other Connectors (Dibiarkan sama) */}
             {connectors
               .filter((c) => c !== farcasterConnector)
               .map((c) => (
@@ -467,11 +483,12 @@ export default function HomeClient() {
         )}
       </div>
 
-      {/* 下方：余额 + 成功提示 */}
+      {/* Bottom: Balance + Success message */}
       <div style={{ maxWidth: 420, margin: "12px auto 0", textAlign: "center", color: "#334" }}>
         {isConnected ? (
           <p>
-            Base 余额： <b>{balance ? Number(balance.formatted).toFixed(4) : "--"} {balance?.symbol ?? "ETH"}</b>
+            {/* MENGGANTI: Base -> Sepolia */}
+            Sepolia 余额： <b>{balance ? Number(balance.formatted).toFixed(4) : "--"} {balance?.symbol ?? "ETH"}</b>
           </p>
         ) : (
           <p style={{ opacity: 0.8 }}>
@@ -480,7 +497,7 @@ export default function HomeClient() {
         )}
         {txHash && (
           <p style={{ marginTop: 8 }}>
-            交易成功： <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noreferrer">查看 Tx</a>
+            交易成功： <a href={`https://sepolia.etherscan.io/tx/${txHash}`} target="_blank" rel="noreferrer">查看 Tx</a> {/* MENGGANTI: basescan -> sepolia.etherscan */}
           </p>
         )}
       </div>

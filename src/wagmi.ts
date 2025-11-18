@@ -1,12 +1,15 @@
 import { createConfig, http, cookieStorage, createStorage } from "wagmi";
-import { base } from "wagmi/chains";
+// MENGGANTI: base -> sepolia
+import { sepolia } from "wagmi/chains"; 
 import { farcasterMiniApp as miniAppConnector } from "@farcaster/miniapp-wagmi-connector";
 import { injected } from "wagmi/connectors";
 
 // 统一导出的 Wagmi 配置
 export const config = createConfig({
-  chains: [base],
-  transports: { [base.id]: http() },
+  // MENGGANTI: [base] -> [sepolia]
+  chains: [sepolia],
+  // MENGGANTI: [base.id]: http() -> [sepolia.id]: http()
+  transports: { [sepolia.id]: http() },
   ssr: true,
   storage: createStorage({ storage: cookieStorage }),
   // 连接器顺序：先 Farcaster MiniApp，再浏览器注入（MetaMask/Rabby/OKX 等）
