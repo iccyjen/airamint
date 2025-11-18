@@ -33,7 +33,7 @@ const SEPOLIA_CHAIN_ID = 11155111; // Sepolia Chain ID
 // ====== Gambar & Konfigurasi Lain (Dibiarkan sama) ======
 const FIXED_PFP_URL =
   process.env.NEXT_PUBLIC_PFP_URL ??
-  "https://z0afnvbjxg97jpeq.public.blob.vercel-storage.com/icon.png";
+  "https://z0afnvbjxg97jpeq.public.blob.vercel-storage.com/46.jpg";
 
 const IPFS_GATEWAY = (process.env.NEXT_PUBLIC_IPFS_GATEWAY || "https://ipfs.io").replace(/\/+$/, "");
 const IMG_CID = process.env.NEXT_PUBLIC_IMG_CID;
@@ -243,7 +243,7 @@ export default function HomeClient() {
       style={{
         minHeight: "100svh",
         padding: 16,
-        background: "linear-gradient(180deg,#c9dcff 0%,#b8d0ff 30%,#a9c7ff 100%)",
+        background: "linear-gradient(180deg,#FDF5FB 0%,#FDF5FB 30%,#FDF5FB 100%)",
       }}
     >
       {/* Top Bar (Dibiarkan sama) */}
@@ -256,7 +256,7 @@ export default function HomeClient() {
           marginBottom: 16,
         }}
       >
-        <div style={{ fontWeight: 700, color: "#4b6bff" }}>{minted}/{total} minted</div>
+        <div style={{ fontWeight: 700, color: "#FDF5FB" }}>{minted}/{total} minted</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {!pfpFailed ? (
             <img
@@ -264,7 +264,7 @@ export default function HomeClient() {
               width={32}
               height={32}
               referrerPolicy="no-referrer"
-              style={{ borderRadius: "50%", border: "2px solid #fff", boxShadow: "0 0 0 2px #aab6ff" }}
+              style={{ borderRadius: "50%", border: "2px solid #fff", boxShadow: "0 0 0 2px #FDF5FB" }}
               onError={() => setPfpFailed(true)}
               alt="pfp"
             />
@@ -274,10 +274,10 @@ export default function HomeClient() {
                 width: 32,
                 height: 32,
                 borderRadius: "50%",
-                background: "#8aa0ff",
+                background: "#FDF5FB",
                 display: "grid",
                 placeItems: "center",
-                color: "#fff",
+                color: "#FDF5FB",
                 fontWeight: 700,
               }}
             >

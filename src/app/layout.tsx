@@ -8,7 +8,7 @@ const miniapp = {
     title: "join fans club",
     action: {
       type: "launch_miniapp",
-      url: "https://mint-u.vercel.app/",
+      url: "https://airamint.vercel.app/",
       name: "aira chan！",
       splashImageUrl: "https://z0afnvbjxg97jpeq.public.blob.vercel-storage.com/splash.png",
       splashBackgroundColor: "#aa579fff",
